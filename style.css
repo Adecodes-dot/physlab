@@ -1,0 +1,67 @@
+:root {
+  color-scheme: light dark;
+  --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11, 11, 11, .10);
+  /* categorical series, fixed order */
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s8: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d; --surface: #1a1a19; --text: #f0efec; --text2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, .10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s8: #e66767;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: grid; grid-template: auto 1fr / 230px minmax(0, 1fr);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--text);
+}
+header { grid-column: 1 / -1; display: flex; gap: 12px; align-items: baseline; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.brand { font-weight: 700; font-size: 18px; color: inherit; text-decoration: none; }
+.tag { color: var(--text2); font-size: 13px; }
+
+nav { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-right: 1px solid var(--border); }
+nav a { padding: 8px 10px; border-radius: 6px; color: var(--text); text-decoration: none; }
+nav a small { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+nav a:hover, nav a[aria-current] { background: var(--surface); }
+nav a[aria-current] { box-shadow: inset 3px 0 var(--s1); }
+
+main { padding: 20px 24px 48px; max-width: 1100px; }
+h1 { font-size: 22px; margin: 0 0 6px; }
+.blurb { color: var(--text2); max-width: 75ch; margin: 0 0 16px; }
+.note { color: var(--text2); font-size: 13px; max-width: 85ch; margin: 0 0 12px; }
+.note a { color: inherit; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; margin: 0 0 12px; }
+.controls label { display: grid; gap: 4px; min-width: 170px; font-size: 12px; color: var(--text2); }
+.controls output { color: var(--text); font-variant-numeric: tabular-nums; }
+select, button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--text); }
+button { cursor: pointer; }
+input[type=range] { width: 100%; accent-color: var(--s1); }
+
+canvas { display: block; width: 100%; margin: 0 0 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; font-size: 12px; color: var(--text2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+
+.tiles { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
+.tiles div { min-width: 130px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.tiles dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.tiles dd { margin: 0; font-size: 18px; font-weight: 600; }
+
+.split { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; align-items: start; }
+table { border-collapse: collapse; font-size: 13px; margin: 0 0 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--grid); }
+th { color: var(--muted); font-weight: 500; }
+th:first-child, td:first-child { text-align: left; }
+
+#tip { position: fixed; z-index: 10; max-width: 240px; padding: 6px 8px; border-radius: 6px; pointer-events: none; font-size: 12px; background: var(--text); color: var(--page); }
+
+@media (max-width: 760px) {
+  body { grid-template: auto auto 1fr / minmax(0, 1fr); }
+  nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  nav a { white-space: nowrap; }
+  main { padding: 16px; }
+  .split { grid-template-columns: minmax(0, 1fr); }
+}

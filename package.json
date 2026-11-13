@@ -1,0 +1,13 @@
+{
+  "name": "physlab",
+  "version": "0.1.0",
+  "description": "Open-data physics workbench: simulations and real CERN / NASA data in the browser.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test": "node --test",
+    "data": "node tools/fetch-data.mjs"
+  }
+}
