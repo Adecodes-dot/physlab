@@ -5,7 +5,7 @@ export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(
 
 // spec: { key: { label, options, value } | { label, min, max, step, value, unit } } → live values object.
 export function controls(host, spec, onChange) {
-  const v = {}, form = document.createElement('form');
+  const v = {}, inputs = {}, form = document.createElement('form');
   form.className = 'controls';
   form.onsubmit = (e) => e.preventDefault();
   for (const [key, c] of Object.entries(spec)) {
@@ -24,12 +24,22 @@ export function controls(host, spec, onChange) {
     };
     input.oninput = () => { read(); onChange(key); };
     read();
+    inputs[key] = { input, read };
     head.append(c.label, ' ', out);
     label.append(head, input);
     form.append(label);
   }
   host.append(form);
+  // v.set({ key: value }) applies saved settings; non-enumerable so { ...v } is a clean snapshot
+  Object.defineProperty(v, 'set', { value: (vals) => { for (const key in inputs) if (key in vals) { inputs[key].input.value = vals[key]; inputs[key].read(); } onChange(); } });
   return v;
+}
+
+// 'value ± error', rounded so the error shows two significant digits.
+export function pm(value, err) {
+  if (!(err > 0) || !isFinite(err)) return String(+value.toPrecision(4));
+  const d = Math.max(0, 1 - Math.floor(Math.log10(err)));
+  return `${value.toFixed(d)} ± ${err.toFixed(d)}`;
 }
 
 export function button(host, text, onClick) {

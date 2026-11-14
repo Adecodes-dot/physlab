@@ -1,5 +1,7 @@
-import { controls, tiles, canvas, frame, ctx2d, hover, ink, button, note } from '../kit.js';
+import { controls, tiles, canvas, frame, ctx2d, hover, ink, button, note, legend, line, pm } from '../kit.js';
 import { invariantMass, histogram } from '../physics/kinematics.js';
+import { fitPeak } from '../physics/fit.js';
+import { notebook } from '../notebook.js';
 
 // [low, high, log axes] in GeV
 const VIEWS = { 'Full spectrum (log–log)': [2, 110, true], 'J/ψ and ψ(2S)': [2.6, 4.1], 'Υ family': [8.5, 11.5], 'Z boson': [70, 110] };
@@ -11,7 +13,7 @@ export default {
   id: 'collider',
   field: 'Particle physics',
   title: 'Dimuon mass spectrum',
-  blurb: '100,000 real proton–proton collisions recorded by the CMS detector at the LHC in 2011, each with two muons. Combine each pair’s energy and momentum into one invariant mass and the short-lived parent particles show up as peaks. Try the Υ family view and raise the bin count until three separate peaks resolve.',
+  blurb: '100,000 real proton–proton collisions recorded by the CMS detector at the LHC in 2011, each with two muons. Combine each pair’s energy and momentum into one invariant mass and the short-lived parent particles show up as peaks. Drag across a peak to zoom in and measure it: position, width and number of signal events, each with its uncertainty.',
 
   async mount(root) {
     const res = await fetch('data/dimuon.csv');
@@ -19,25 +21,43 @@ export default {
     // columns: pt1, eta1, phi1, Q1, pt2, eta2, phi2, Q2
     const ev = (await res.text()).split('\n').slice(1).map((r) => r.split(',').map(Number)).filter((r) => r.length === 8);
     const mass = ev.map((r) => invariantMass(r[0], r[1], r[2], r[4], r[5], r[6]));
+    const views = { ...VIEWS, 'Custom range': [2.95, 3.25] };
 
     const v = controls(root, {
-      view: { label: 'Mass window', options: Object.keys(VIEWS), value: 'Full spectrum (log–log)' },
+      view: { label: 'Mass window', options: Object.keys(views), value: 'Full spectrum (log–log)' },
       charge: { label: 'Muon charges', options: ['Opposite charge', 'Same charge', 'Any'], value: 'Opposite charge' },
       bins: { label: 'Bins', min: 20, max: 300, step: 10, value: 150 },
       minPt: { label: 'Min. muon pT', min: 0, max: 30, step: 1, value: 0, unit: 'GeV' },
+      shape: { label: 'Peak shape to fit', options: ['Gaussian', 'Breit–Wigner'], value: 'Gaussian' },
     }, update);
-    const cv = canvas(root, 400, 'Histogram of dimuon invariant mass with known particle masses marked');
+    legend(root, [['Collision data', '--s1'], ['Fit: peak + background', '--s2'], ['Background alone (dashed)', '--muted']]);
+    const cv = canvas(root, 400, 'Histogram of dimuon invariant mass with known particle masses marked and a fitted peak');
+    cv.style.touchAction = 'pan-y'; // horizontal drags select a range, vertical ones still scroll the page
+    cv.style.cursor = 'crosshair';
     const set = tiles(root);
+    note(root, 'The ± values are statistical only. A tiny error bar with a large gap to the reference usually points to a systematic effect — detector calibration, or a peak shape that does not match the data (check χ² / ndf, which should be near 1) — not to new physics.');
+
+    let sel = [], shown = -1, hist, plot, peak = null, blind = false, drag = null;
+    const [lo, hi, log] = [0, 1, 2].map((i) => () => views[v.view][i]);
+    const edge = (i) => (log() ? lo() * (hi() / lo()) ** (i / v.bins) : lo() + (hi() - lo()) * i / v.bins);
+    const measured = () => !log() && peak?.ok;
+
+    const book = notebook(root, {
+      lab: 'collider',
+      quantities: { 'Peak position': 'GeV', 'Peak width': 'GeV', 'Signal events': 'events' },
+      results: () => (measured() ? { 'Peak position': [...peak.position, 'GeV'], 'Peak width': [...peak.width, 'GeV'], 'Signal events': [...peak.signal, 'events'] } : null),
+      method: () => ({ ...v, range: [lo(), hi()] }),
+      restore: (m) => { if (m.view === 'Custom range') views['Custom range'] = m.range; v.set(m); },
+      blind: (on) => { blind = on; report(); draw(); },
+    });
+
+    root.insertAdjacentHTML('beforeend', '<h2 class="section">One collision up close</h2>');
     const row = Object.assign(document.createElement('div'), { className: 'split' });
     const evCv = canvas(row, 340, 'One collision seen along the beam line: two muon tracks curving in the magnetic field');
     const info = document.createElement('div');
     row.append(info);
     root.append(row);
     note(root, 'Data: CMS collaboration, <a href="https://opendata.cern.ch/record/545">CERN Open Data record 545</a> (CC0), an education subset of Run2011A — fine for learning, not for a physics result. Reference masses: Particle Data Group.');
-
-    let sel = [], shown = -1, hist, plot;
-    const [lo, hi, log] = [0, 1, 2].map((i) => () => VIEWS[v.view][i]);
-    const edge = (i) => (log() ? lo() * (hi() / lo()) ** (i / v.bins) : lo() + (hi() - lo()) * i / v.bins);
 
     function update() {
       const want = { 'Opposite charge': -1, 'Same charge': 1 }[v.charge];
@@ -46,15 +66,26 @@ export default {
         if (mass[i] >= lo() && mass[i] < hi() && Math.min(r[0], r[4]) >= v.minPt && (!want || r[3] * r[7] === want)) sel.push(i);
       });
       hist = histogram(sel.map((i) => mass[i]), lo(), hi(), v.bins, log());
-      const peak = hist.indexOf(Math.max(...hist)), at = (edge(peak) + edge(peak + 1)) / 2;
-      const ref = PDG.reduce((a, b) => (Math.abs(Math.log(b[1] / at)) < Math.abs(Math.log(a[1] / at)) ? b : a));
-      set(sel.length ? {
-        'Events in view': sel.length.toLocaleString(),
-        'Tallest bin': `${at.toFixed(at < 20 ? 3 : 2)} GeV`,
-        'Nearest known particle': `${ref[0]} · ${ref[1].toFixed(3)} GeV`,
-        'Bin width there': `${(edge(peak + 1) - edge(peak)).toFixed(3)} GeV`,
-      } : { 'Events in view': 'none — loosen the cuts' });
+      peak = log() ? null : fitPeak(Array.from(hist, (_, i) => (edge(i) + edge(i + 1)) / 2), hist, v.shape === 'Gaussian' ? 'gauss' : 'bw');
+      report();
+      book.refresh();
       next();
+    }
+
+    function report() {
+      const base = { 'Events in view': sel.length.toLocaleString() };
+      if (log()) return set({ ...base, 'To measure a peak': 'drag across it on the chart' });
+      if (blind) return set({ ...base, 'Fit results': 'hidden until you lock a prediction' });
+      if (!measured()) return set({ ...base, 'Fit': 'no significant single peak here (needs 3 σ above background) — drag across just one' });
+      const [pos, err] = peak.position, ref = PDG.reduce((a, b) => (Math.abs(b[1] - pos) < Math.abs(a[1] - pos) ? b : a)), gap = (pos - ref[1]) / err;
+      set({
+        ...base,
+        'Peak position': `${pm(pos, err)} GeV`,
+        [v.shape === 'Gaussian' ? 'Width σ' : 'Width Γ']: `${pm(...peak.width)} GeV`,
+        'Signal events': pm(...peak.signal),
+        'Fit quality χ² / ndf': `${peak.chi2.toFixed(0)} / ${peak.ndf} = ${(peak.chi2 / peak.ndf).toFixed(2)}`,
+        ...(ref[1] > lo() && ref[1] < hi() && { [`Gap to ${ref[0]} reference`]: `${gap > 0 ? '+' : '−'}${Math.abs(gap).toFixed(1)} σ` }),
+      });
     }
 
     function next() {
@@ -76,6 +107,13 @@ export default {
         const x0 = p.sx(edge(i)), wBar = p.sx(edge(i + 1)) - x0, y = p.sy(n);
         ctx.fillRect(x0, y, wBar > 3 ? wBar - 1 : wBar, p.bottom - y);
       });
+      if (measured() && !blind) {
+        const xs = Array.from({ length: 241 }, (_, i) => lo() + (hi() - lo()) * i / 240);
+        ctx.setLineDash([5, 4]); line(p, xs, xs.map(peak.background), '--muted');
+        ctx.setLineDash([]); line(p, xs, xs.map(peak.curve), '--s2');
+        ctx.lineWidth = 1;
+      }
+      if (drag) { ctx.globalAlpha = 0.15; ctx.fillStyle = ink('--text'); ctx.fillRect(Math.min(...drag), p.top, Math.abs(drag[1] - drag[0]), p.bottom - p.top); ctx.globalAlpha = 1; }
       ctx.restore();
       // reference masses: dashed rule + label, staggered so neighbours don't collide
       ctx.setLineDash([4, 4]); ctx.strokeStyle = ink('--muted'); ctx.fillStyle = ink('--text2'); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -119,10 +157,23 @@ export default {
     }
 
     hover(cv, (x) => {
-      if (!plot || x < plot.left || x > plot.right) return '';
+      if (drag || !plot || x < plot.left || x > plot.right) return '';
       const m = plot.ix(x), i = Math.floor(log() ? Math.log(m / lo()) / Math.log(hi() / lo()) * v.bins : (m - lo()) / (hi() - lo()) * v.bins);
       return hist[i] === undefined ? '' : `<b>${hist[i].toLocaleString()} events</b><br>${edge(i).toFixed(3)} – ${edge(i + 1).toFixed(3)} GeV`;
     });
+
+    // drag across the chart → zoom to that range (linear axes) and fit the peak in it
+    const clampX = (x) => Math.min(plot.right, Math.max(plot.left, x));
+    cv.onpointerdown = (e) => { drag = [clampX(e.offsetX), clampX(e.offsetX)]; cv.setPointerCapture(e.pointerId); };
+    cv.onpointermove = (e) => { if (drag) { drag[1] = clampX(e.offsetX); draw(); } };
+    cv.onpointerup = cv.onpointercancel = () => {
+      if (!drag) return;
+      const [a, b] = drag.map(plot.ix).sort((m, n) => m - n), wide = Math.abs(drag[1] - drag[0]) > 8;
+      drag = null;
+      if (!wide) return draw();
+      views['Custom range'] = [a, b];
+      v.set({ view: 'Custom range' });
+    };
 
     update();
     return { draw };

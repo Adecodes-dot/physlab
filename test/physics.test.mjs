@@ -48,3 +48,39 @@ test('Hodgkin–Huxley neuron rests without input and fires repeatedly with it',
   assert.ok(simulate({ I: 10 }).spikes.length >= 4);
   near(simulate({ I: 0 }).V.at(-1), -65, 0.5);
 });
+
+// --- measurement engine ---
+import { readFileSync } from 'node:fs';
+import { fitPeak, compare } from '../src/physics/fit.js';
+
+test('peak fit recovers a known Gaussian on a sloped background within its own error bars', () => {
+  let seed = 42;
+  const rand = () => (seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32;
+  const gauss = () => Math.sqrt(-2 * Math.log(rand() || 1e-12)) * Math.cos(2 * Math.PI * rand());
+  const x = Array.from({ length: 80 }, (_, i) => 9 + (i + 0.5) * 0.0125);
+  const truth = (xi) => 900 * Math.exp(-((xi - 9.46) ** 2) / (2 * 0.09 ** 2)) + 300 - 40 * (xi - 9.5);
+  const y = x.map((xi) => Math.round(truth(xi) + Math.sqrt(truth(xi)) * gauss()));
+  const f = fitPeak(x, y, 'gauss');
+  assert.ok(f.ok);
+  near(f.position[0], 9.46, 4 * f.position[1]);
+  near(f.width[0], 0.09, 4 * f.width[1]);
+  near(f.signal[0], 900 * 0.09 * Math.sqrt(2 * Math.PI) / 0.0125, 4 * f.signal[1]);
+  assert.ok(f.chi2 / f.ndf > 0.5 && f.chi2 / f.ndf < 1.6, `chi2/ndf ${f.chi2 / f.ndf}`);
+});
+
+test('fitting the real CMS data finds the J/psi near 3.097 GeV', () => {
+  const rows = readFileSync(new URL('../data/dimuon.csv', import.meta.url), 'utf8').split('\n').slice(1).map((r) => r.split(',').map(Number));
+  const m = rows.filter((r) => r.length === 8 && r[3] * r[7] === -1).map((r) => invariantMass(r[0], r[1], r[2], r[4], r[5], r[6]));
+  const lo = 2.95, hi = 3.25, bins = 60, h = histogram(m, lo, hi, bins);
+  const f = fitPeak(Array.from(h, (_, i) => lo + (i + 0.5) * (hi - lo) / bins), h, 'gauss');
+  assert.ok(f.ok);
+  near(f.position[0], 3.0969, 0.015);
+  assert.ok(f.width[0] > 0.015 && f.width[0] < 0.06, `width ${f.width[0]}`);
+  assert.ok(f.signal[0] > 1000, `signal ${f.signal[0]}`);
+});
+
+test('compare judges a prediction against a measurement', () => {
+  assert.equal(compare(3.097, 0.005, 3.094, 0.001).text, 'Prediction survived');
+  assert.equal(compare(3.2, 0.005, 3.094, 0.001).text, 'Prediction refuted');
+  assert.equal(compare(1, 0, 1, 0).text, 'Cannot judge without an uncertainty');
+});

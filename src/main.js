@@ -28,6 +28,6 @@ async function route() {
 
 const redraw = () => current?.draw?.();
 addEventListener('hashchange', route);
-addEventListener('resize', redraw);
+new ResizeObserver(redraw).observe(host); // also catches a scrollbar appearing, which fires no window resize
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
 route();

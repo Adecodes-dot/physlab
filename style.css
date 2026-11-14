@@ -47,7 +47,7 @@ canvas { display: block; width: 100%; margin: 0 0 12px; background: var(--surfac
 
 .tiles { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
 .tiles div { min-width: 130px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-.tiles dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.tiles dt { font-size: 12px; color: var(--muted); } /* no uppercase: it would turn σ into Σ */
 .tiles dd { margin: 0; font-size: 18px; font-weight: 600; }
 
 .split { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -60,8 +60,23 @@ th:first-child, td:first-child { text-align: left; }
 
 @media (max-width: 760px) {
   body { grid-template: auto auto 1fr / minmax(0, 1fr); }
-  nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  nav { flex-direction: row; overflow-x: auto; scrollbar-width: none; border-right: 0; border-bottom: 1px solid var(--border); }
   nav a { white-space: nowrap; }
   main { padding: 16px; }
   .split { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* lab notebook */
+h2 { font-size: 18px; margin: 0 0 8px; }
+h3 { font-size: 14px; margin: 20px 0 8px; color: var(--text2); }
+.notebook { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+.notebook button { margin: 0 6px 6px 0; }
+.sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; max-width: 760px; margin: 0 0 12px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.sheet .wide { grid-column: 1 / -1; margin: 0; }
+.sheet label { display: grid; gap: 4px; font-size: 12px; color: var(--text2); }
+.sheet input, .sheet textarea { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--page); color: var(--text); }
+.sheet select { background: var(--page); }
+.record { max-width: 760px; margin: 0 0 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.record p { margin: 6px 0; }
+.record small { color: var(--muted); margin-left: 6px; }
+.section { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
