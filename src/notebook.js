@@ -7,12 +7,13 @@ const KEY = 'physlab.notebook';
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? []; } catch { return []; } };
 const save = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); return true; } catch { return false; } };
 
-const amount = ([value, err, unit]) => `${pm(value, err)} ${unit}`;
+const amount = ([value, err, unit]) => `${pm(value, err)} ${unit}`.trim();
 const methodText = (m) => Object.entries(m).map(([k, val]) => `${k}: ${Array.isArray(val) ? val.map((x) => +(+x).toPrecision(5)).join(' – ') : val}`).join(' · ');
 const judge = (r) => { const c = compare(r.predicted, r.tolerance, r.measured[0], r.measured[1]); return `${c.text}${isFinite(c.z) ? ` (${c.z.toFixed(1)} σ apart)` : ''}`; };
 
-// o: { lab, quantities: { name: unit }, results(): { name: [value, err, unit] } | null,
-//      method(): settings snapshot, restore(method), blind(on): hide/show fit results in the lab }
+// o: { lab, example: sample question, pending: text shown while there is nothing to measure,
+//      quantities: { name: unit }, results(): { name: [value, err, unit] } | null,
+//      method(): settings snapshot, restore(method), blind(on): hide/show measured values in the lab }
 export function notebook(root, o) {
   const box = document.createElement('section');
   box.className = 'notebook';
@@ -23,27 +24,27 @@ export function notebook(root, o) {
     const el = box.querySelector('[data-live]');
     if (!el) return;
     const got = o.results()?.[draft.quantity];
-    el.textContent = got ? `Measured now: ${amount(got)} → ${judge({ ...draft, measured: got })}` : 'No clear fit right now — select one peak.';
+    el.textContent = got ? `Measured now: ${amount(got)} → ${judge({ ...draft, measured: got })}` : o.pending;
   }
 
   function render() {
     const mine = load().filter((r) => r.lab === o.lab);
     const sheet = stage === 'idle' ? `
-      <p class="note">Work the way a physicist does: ask a question, write down what you expect <em>before</em> you look, measure, then compare. Fit results stay hidden from the moment you start until your prediction is locked.</p>
+      <p class="note">Work the way a physicist does: ask a question, write down what you expect <em>before</em> you look, measure, then compare. Measured values stay hidden from the moment you start until your prediction is locked.</p>
       <button type="button" data-act="new">New experiment</button>`
       : stage === 'predict' ? `
       <form class="sheet">
-        <label>Question<input name="question" required placeholder="e.g. Where does the J/ψ peak sit when both muons have pT above 5 GeV?"></label>
-        <label>Quantity to predict<select name="quantity">${Object.entries(o.quantities).map(([q, unit]) => `<option value="${q}">${q} (${unit})</option>`).join('')}</select></label>
+        <label>Question<input name="question" required placeholder="e.g. ${esc(o.example)}"></label>
+        <label>Quantity to predict<select name="quantity">${Object.entries(o.quantities).map(([q, unit]) => `<option value="${esc(q)}">${esc(q)}${unit ? ` (${esc(unit)})` : ''}</option>`).join('')}</select></label>
         <label>My prediction<input name="predicted" type="number" step="any" required></label>
         <label>± how sure I am, same units<input name="tolerance" type="number" step="any" min="0" required></label>
         <label class="wide">Why I expect this<textarea name="reason" rows="2"></textarea></label>
         <div class="wide"><button>Lock prediction and reveal results</button> <button type="button" data-act="cancel">Cancel</button></div>
       </form>
-      <p class="note">Set the range and cuts above first. The fit numbers are hidden until you lock.</p>`
+      <p class="note">Choose your settings above first. The measured values are hidden until you lock.</p>`
       : `
       <div class="sheet">
-        <p class="wide"><b>Question</b> ${esc(draft.question)}<br><b>Prediction</b> ${esc(draft.quantity)} = ${draft.predicted} ± ${draft.tolerance} ${esc(o.quantities[draft.quantity])}, locked ${new Date(draft.id).toLocaleTimeString()}</p>
+        <p class="wide"><b>Question</b> ${esc(draft.question)}<br><b>Prediction</b> ${esc(draft.quantity)} = ${draft.predicted} ± ${draft.tolerance} ${esc(o.quantities[draft.quantity] ?? '')}, locked ${new Date(draft.id).toLocaleTimeString()}</p>
         <p class="wide" data-live></p>
         <label class="wide">Conclusion<textarea name="conclusion" rows="2" placeholder="What did you learn? What would you test next?"></textarea></label>
         <div class="wide"><button type="button" data-act="record">Record this result</button> <button type="button" data-act="cancel">Discard</button></div>
@@ -77,7 +78,7 @@ export function notebook(root, o) {
     else if (b.dataset.act === 'cancel') go('idle');
     else if (b.dataset.act === 'record') {
       const results = o.results(), method = o.method();
-      if (!results) { box.querySelector('[data-live]').textContent = 'Nothing to record: there is no clear fit. Select one peak first.'; return; }
+      if (!results?.[draft.quantity]) { box.querySelector('[data-live]').textContent = `Nothing to record yet. ${o.pending}`; return; }
       all.push({ ...draft, measured: results[draft.quantity], results, method, changed: JSON.stringify(method) !== JSON.stringify(draft.method), conclusion: box.querySelector('[name=conclusion]').value });
       if (!save(all)) alert('This browser blocked saving. Download the notebook to keep your record.');
       go('idle');

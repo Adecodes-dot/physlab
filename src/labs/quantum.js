@@ -1,13 +1,15 @@
 import { controls, tiles, canvas, frame, line, ink, button, note } from '../kit.js';
 import { makeState, gaussian, step, prob, barrierT } from '../physics/quantum.js';
+import { notebook } from '../notebook.js';
 
 const LENGTH = 120, N = 1201, DT = 0.05, X0 = 35, SIGMA = 5, WALL = 60, STEPS_PER_FRAME = 6;
+const pc = (x) => `${x.toFixed(1)} %`;
 
 export default {
   id: 'quantum',
   field: 'Quantum physics',
   title: 'Wave packet and barrier',
-  blurb: 'A particle described by a wave packet meets a potential. Classically it either clears the barrier or bounces; here the wave splits, and part of it appears on the far side even when its energy is below the barrier. Try energy below the barrier height, then thin the barrier and watch the transmitted share grow.',
+  blurb: 'A particle described by a wave packet meets a potential. Classically it either clears the barrier or bounces; here the wave splits, and part of it appears on the far side even when its energy is below the barrier. Once the packet has finished scattering the run pauses and the transmitted and reflected shares are measured. Try energy below the barrier height, then thin the barrier.',
 
   mount(root) {
     const v = controls(root, {
@@ -18,15 +20,21 @@ export default {
     }, reset);
     const bar = root.lastChild;
     let running = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const toggle = button(bar, running ? 'Pause' : 'Run', () => { running = !running; toggle.textContent = running ? 'Pause' : 'Run'; });
+    const toggle = button(bar, '', () => run(!running));
+    const run = (on) => { running = on; toggle.textContent = on ? 'Pause' : 'Run'; };
+    run(running);
     button(bar, 'Restart', reset);
     const cvV = canvas(root, 150, 'Potential energy against position, with the packet energy marked');
     const cvP = canvas(root, 320, 'Probability density of the particle against position, animated');
     const set = tiles(root);
-    note(root, 'Natural units (ħ = m = 1). The box has hard walls, so the packet eventually reflects off the ends. Theory T is for a single exact energy; a packet is a spread of energies, so its transmitted share differs a little.');
+    note(root, 'A simulation has no statistical noise, so the measured shares carry no ± of their own; your prediction’s tolerance alone decides the verdict. Theory T is for a single exact energy, while a packet is a spread of energies, so the two differ a little.');
 
     const s = makeState(N, LENGTH), xs = Float64Array.from({ length: N }, (_, j) => j * s.dx), density = new Float64Array(N);
-    let t, raf;
+    let t, raf, final = null, hold = false;
+    const scatters = () => v.shape === 'Barrier' || v.shape === 'Step';
+    const near = Math.round(WALL / s.dx), far = () => Math.round((WALL + (v.shape === 'Barrier' ? v.a : 0)) / s.dx);
+    // by then the reflected part is back at the start and the transmitted part is as far beyond the barrier
+    const tMeasure = () => 2 * (WALL - X0) / Math.sqrt(2 * v.E);
 
     function reset() {
       const end = WALL + v.a;
@@ -37,11 +45,29 @@ export default {
           : v.shape === 'Harmonic well' ? 0.5 * 0.05 ** 2 * (x - WALL) ** 2 : 0;
       }
       gaussian(s, X0, SIGMA, Math.sqrt(2 * v.E));
-      t = 0;
+      t = 0; final = null;
     }
+    reset();
+
+    const book = notebook(root, {
+      lab: 'quantum',
+      example: 'What share of the packet tunnels through when its energy is 80 % of the barrier height?',
+      pending: 'The measurement is taken once the packet has finished scattering (barrier or step only).',
+      quantities: { 'Transmitted share': '%', 'Reflected share': '%' },
+      results: () => (final ? { 'Transmitted share': [final.T, 0, '%'], 'Reflected share': [final.R, 0, '%'] } : null),
+      method: () => ({ ...v }),
+      restore: (m) => v.set(m),
+      // while predicting, the packet waits at the start so the outcome cannot be watched in advance
+      blind: (on) => { hold = on; reset(); if (!on) run(true); },
+    });
+    note(root, 'Natural units (ħ = m = 1). The box has hard walls, so if you run on after the measurement the packet reflects off the ends.');
 
     function tick() {
-      if (running) { for (let i = 0; i < STEPS_PER_FRAME; i++) step(s, DT); t += STEPS_PER_FRAME * DT; }
+      if (running && !hold) {
+        for (let i = 0; i < STEPS_PER_FRAME; i++) step(s, DT);
+        t += STEPS_PER_FRAME * DT;
+        if (scatters() && !final && t >= tMeasure()) { final = { T: prob(s, far()) * 100, R: prob(s, 0, near) * 100, t }; run(false); }
+      }
       for (let j = 0; j < N; j++) density[j] = s.re[j] ** 2 + s.im[j] ** 2;
 
       const e = frame(cvV, { x: [0, LENGTH], y: [0, 3.2], ylabel: 'Energy' });
@@ -63,17 +89,18 @@ export default {
       p.ctx.globalAlpha = 0.18; p.ctx.fillStyle = ink('--s1'); p.ctx.fill();
       p.ctx.restore();
 
-      const barrier = v.shape === 'Barrier', edge = Math.round(WALL / s.dx), far = Math.round((WALL + (barrier ? v.a : 0)) / s.dx);
-      set({
+      set(hold ? { Status: 'Waiting at the start. Results stay hidden until you lock a prediction.' } : {
         Time: t.toFixed(1),
         'Total probability': prob(s).toFixed(6),
-        ...(barrier || v.shape === 'Step' ? { 'Left of barrier': `${(prob(s, 0, edge) * 100).toFixed(1)} %`, 'Past barrier': `${(prob(s, far) * 100).toFixed(1)} %` } : {}),
-        ...(barrier ? { 'Theory T (single energy)': `${(barrierT(v.E, v.V0, v.a) * 100).toFixed(1)} %` } : {}),
+        ...(scatters() && (final
+          ? { [`Transmitted, measured at t = ${final.t.toFixed(0)}`]: pc(final.T), 'Reflected': pc(final.R) }
+          : { 'Past barrier so far': pc(prob(s, far()) * 100), 'Left of barrier so far': pc(prob(s, 0, near) * 100), 'Measurement at': `t = ${tMeasure().toFixed(0)}` })),
+        ...(v.shape === 'Barrier' && { 'Theory T (single energy)': pc(barrierT(v.E, v.V0, v.a) * 100) }),
       });
+      book.refresh();
       raf = requestAnimationFrame(tick);
     }
 
-    reset();
     tick();
     return { stop: () => cancelAnimationFrame(raf) };
   },

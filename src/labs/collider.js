@@ -44,6 +44,8 @@ export default {
 
     const book = notebook(root, {
       lab: 'collider',
+      example: 'Where does the J/ψ peak sit when both muons have pT above 5 GeV?',
+      pending: 'No significant single peak right now — drag across just one.',
       quantities: { 'Peak position': 'GeV', 'Peak width': 'GeV', 'Signal events': 'events' },
       results: () => (measured() ? { 'Peak position': [...peak.position, 'GeV'], 'Peak width': [...peak.width, 'GeV'], 'Signal events': [...peak.signal, 'events'] } : null),
       method: () => ({ ...v, range: [lo(), hi()] }),

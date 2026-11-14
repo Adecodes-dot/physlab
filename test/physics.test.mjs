@@ -84,3 +84,34 @@ test('compare judges a prediction against a measurement', () => {
   assert.equal(compare(3.2, 0.005, 3.094, 0.001).text, 'Prediction refuted');
   assert.equal(compare(1, 0, 1, 0).text, 'Cannot judge without an uncertainty');
 });
+
+import { linfit } from '../src/physics/fit.js';
+import { revolutions } from '../src/physics/nbody.js';
+
+test('straight-line fit recovers slope and intercept within its error bars', () => {
+  let seed = 7;
+  const rand = () => (seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32;
+  const x = Array.from({ length: 200 }, (_, i) => i / 20), y = x.map((xi) => 1 + 2 * xi + (rand() - 0.5));
+  const f = linfit(x, y);
+  near(f.slope[0], 2, 4 * f.slope[1]);
+  near(f.intercept[0], 1, 4 * f.intercept[1]);
+  near(f.scatter[0], 1 / Math.sqrt(12), 0.05); // sd of a unit-width uniform
+  assert.equal(linfit([1, 1, 1], [1, 2, 3]), null);
+});
+
+test('the real exoplanet data follow Kepler: log a against log P has slope 2/3', () => {
+  const d = JSON.parse(readFileSync(new URL('../data/exoplanets.json', import.meta.url), 'utf8'));
+  const P = d.cols.indexOf('pl_orbper'), a = d.cols.indexOf('pl_orbsmax');
+  const rows = d.rows.filter((r) => r[P] > 0 && r[a] > 0);
+  near(linfit(rows.map((r) => Math.log10(r[P])), rows.map((r) => Math.log10(r[a]))).slope[0], 2 / 3, 0.01);
+});
+
+test('period tracker measures a one-year orbit for Earth', () => {
+  const b = [{ m: 1, x: 0, y: 0, vx: 0, vy: 0 }, { m: 3e-6, x: 1, y: 0, vx: 0, vy: Math.sqrt(G) }], laps = revolutions();
+  laps.push(0, 0);
+  for (let i = 1; i <= 3500; i++) { step(b, 0.001); laps.push(i * 0.001, Math.atan2(b[1].y - b[0].y, b[1].x - b[0].x)); }
+  const [mean, se, n] = laps.period();
+  assert.equal(n, 3);
+  near(mean, 1, 1e-4);
+  assert.ok(se < 1e-5);
+});

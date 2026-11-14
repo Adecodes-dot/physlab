@@ -83,3 +83,19 @@ export function compare(predicted, tolerance, measured, err) {
   const z = Math.abs(measured - predicted) / Math.hypot(tolerance, err);
   return { z, text: !isFinite(z) ? 'Cannot judge without an uncertainty' : z < 2 ? 'Prediction survived' : z < 3 ? 'In tension' : 'Prediction refuted' };
 }
+
+// Straight-line least squares y = intercept + slope·x with equal weights. Errors come from the scatter of the
+// points about the line, so they assume that scatter is random. Values are [value, 1σ error].
+export function linfit(x, y) {
+  const n = x.length;
+  if (n < 3) return null;
+  const mx = x.reduce((a, b) => a + b, 0) / n, my = y.reduce((a, b) => a + b, 0) / n;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const dx = x[i] - mx, dy = y[i] - my; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; }
+  if (!(sxx > 0)) return null;
+  const slope = sxy / sxx, s2 = Math.max(0, syy - slope * sxy) / (n - 2);
+  return {
+    n, slope: [slope, Math.sqrt(s2 / sxx)], intercept: [my - slope * mx, Math.sqrt(s2 * (1 / n + mx * mx / sxx))],
+    scatter: [Math.sqrt(s2), Math.sqrt(s2 / (2 * (n - 2)))], r: syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0,
+  };
+}

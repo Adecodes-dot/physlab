@@ -1,4 +1,6 @@
-import { controls, tiles, canvas, frame, hover, ink, legend, note, esc } from '../kit.js';
+import { controls, tiles, canvas, frame, hover, ink, legend, note, esc, pm } from '../kit.js';
+import { linfit } from '../physics/fit.js';
+import { notebook } from '../notebook.js';
 
 const AXES = {
   'Orbital period (days)': 'pl_orbper', 'Semi-major axis (AU)': 'pl_orbsmax', 'Mass (Earth = 1)': 'pl_bmasse',
@@ -11,12 +13,13 @@ const HOME = [
   ['Jupiter', { pl_orbper: 4332.6, pl_orbsmax: 5.203, pl_bmasse: 317.8, pl_rade: 11.21 }],
 ];
 const num = (x) => +(+x).toPrecision(4);
+const lin = (k) => k === 'disc_year'; // every other axis is logarithmic
 
 export default {
   id: 'exoplanets',
   field: 'Astrophysics',
   title: 'Exoplanet census',
-  blurb: 'Every confirmed planet around another star in NASA’s archive. Each detection method has blind spots, so the clusters show what we can find as much as what exists. Try semi-major axis against orbital period: the points fall on a line, which is Kepler’s third law.',
+  blurb: 'Every confirmed planet around another star in NASA’s archive. Each detection method has blind spots, so the clusters show what we can find as much as what exists. A straight line is fitted through whatever you plot: on two logarithmic axes its slope is the exponent of a power law. Try semi-major axis against orbital period and compare the slope with Kepler’s 2/3.',
 
   async mount(root) {
     const res = await fetch('data/exoplanets.json');
@@ -30,16 +33,33 @@ export default {
     const v = controls(root, {
       x: { label: 'Horizontal axis', options: Object.keys(AXES), value: 'Orbital period (days)' },
       y: { label: 'Vertical axis', options: Object.keys(AXES), value: 'Mass (Earth = 1)' },
+      who: { label: 'Planets included', options: ['All methods', ...GROUPS.map((g) => g[0])], value: 'All methods' },
     }, draw);
-    legend(root, GROUPS);
-    const cv = canvas(root, 460, 'Scatter plot of confirmed exoplanets coloured by discovery method');
+    legend(root, [...GROUPS, ['Straight-line fit', '--text']]);
+    const cv = canvas(root, 460, 'Scatter plot of confirmed exoplanets coloured by discovery method, with a fitted straight line');
     const set = tiles(root);
+    note(root, 'The fit treats every planet equally and takes its ± from the scatter of the points, so it assumes that scatter is random. It is not: each method finds some planets far more easily than others, which can bend a trend. Scatter is in dex on a logarithmic axis: 1 dex is a factor of 10.');
+
+    let screen = [], line = null, blind = false;
+    const scatterUnit = () => (lin(AXES[v.y]) ? 'yr' : 'dex');
+    const book = notebook(root, {
+      lab: 'exoplanets',
+      example: 'What exponent links semi-major axis to orbital period?',
+      pending: 'Too few planets have both values to fit a line.',
+      get quantities() { return { 'Fitted slope': '', 'Scatter about the line': scatterUnit() }; },
+      results: () => (line ? { 'Fitted slope': [...line.slope, ''], 'Scatter about the line': [...line.scatter, scatterUnit()] } : null),
+      method: () => ({ ...v }),
+      restore: (m) => v.set(m),
+      blind: (on) => { blind = on; draw(); },
+    });
     note(root, `Data: <a href="https://exoplanetarchive.ipac.caltech.edu/">NASA Exoplanet Archive</a>, Planetary Systems Composite Parameters, snapshot ${esc(data.fetched)}. Many archive semi-major axes are themselves computed from the period with Kepler’s law, so the Kepler ratio is partly a consistency check, not an independent test.`);
 
-    let screen = [];
     function draw() {
-      const kx = AXES[v.x], ky = AXES[v.y], lin = (k) => k === 'disc_year';
-      const pts = data.rows.filter((r) => r[col[kx]] > 0 && r[col[ky]] > 0);
+      const kx = AXES[v.x], ky = AXES[v.y], want = GROUPS.findIndex((g) => g[0] === v.who); // −1 = all
+      const pts = data.rows.filter((r) => r[col[kx]] > 0 && r[col[ky]] > 0 && (want < 0 || group(r) === want));
+      const tx = (val) => (lin(kx) ? val : Math.log10(val)), ty = (val) => (lin(ky) ? val : Math.log10(val));
+      line = linfit(pts.map((r) => tx(r[col[kx]])), pts.map((r) => ty(r[col[ky]])));
+      if (!pts.length) { screen = []; frame(cv, { x: [1, 10], y: [1, 10], xlabel: v.x, ylabel: v.y }); set({ 'Planets plotted': 'none have both values' }); book.refresh(); return; }
       const range = (k) => {
         const vals = pts.map((r) => r[col[k]]), lo = Math.min(...vals), hi = Math.max(...vals);
         return lin(k) ? [lo - 1, hi + 1] : [lo / 1.6, hi * 1.6];
@@ -52,16 +72,21 @@ export default {
         ctx.fillStyle = ink(colour);
         for (const [X, Y, r] of screen) if (group(r) === g) { ctx.beginPath(); ctx.arc(X, Y, 2.2, 0, 7); ctx.fill(); }
       });
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = 1; ctx.strokeStyle = ink('--text'); ctx.lineWidth = 2;
+      if (line && !blind) {
+        ctx.beginPath();
+        for (const X of range(kx)) { const Y = line.intercept[0] + line.slope[0] * tx(X); ctx.lineTo(p.sx(X), p.sy(lin(ky) ? Y : 10 ** Y)); }
+        ctx.stroke();
+      }
       const kepler = new Set([kx, ky]).size === 2 && [kx, ky].every((k) => k === 'pl_orbper' || k === 'pl_orbsmax');
       if (kepler) {
-        const a = (P) => (P / 365.25) ** (2 / 3), ends = range('pl_orbper');
-        ctx.setLineDash([5, 4]); ctx.strokeStyle = ink('--text'); ctx.beginPath();
-        for (const P of ends) kx === 'pl_orbper' ? ctx.lineTo(p.sx(P), p.sy(a(P))) : ctx.lineTo(p.sx(a(P)), p.sy(P));
-        ctx.stroke(); ctx.setLineDash([]);
+        const a = (P) => (P / 365.25) ** (2 / 3);
+        ctx.setLineDash([5, 4]); ctx.lineWidth = 1; ctx.beginPath();
+        for (const P of range('pl_orbper')) kx === 'pl_orbper' ? ctx.lineTo(p.sx(P), p.sy(a(P))) : ctx.lineTo(p.sx(a(P)), p.sy(P));
+        ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 2;
       }
       // our own solar system for scale
-      ctx.strokeStyle = ctx.fillStyle = ink('--text'); ctx.lineWidth = 2; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillStyle = ink('--text'); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       for (const [name, o] of HOME) {
         if (!(kx in o && ky in o)) continue;
         ctx.beginPath(); ctx.arc(p.sx(o[kx]), p.sy(o[ky]), 5, 0, 7); ctx.stroke();
@@ -70,8 +95,14 @@ export default {
       ctx.restore();
       set({
         'Planets plotted': `${pts.length.toLocaleString()} of ${data.rows.length.toLocaleString()}`,
-        ...(kepler && { 'Dashed line': 'a³ = P² for a Sun-mass star', 'Median a³ / (P²·M★)': ratios[ratios.length >> 1].toFixed(3) }),
+        ...(blind ? { 'Fit results': 'hidden until you lock a prediction' } : line ? {
+          [lin(kx) || lin(ky) ? 'Fitted slope' : 'Fitted slope (power-law exponent)']: pm(...line.slope),
+          'Scatter about the line': `${pm(...line.scatter)} ${scatterUnit()}`,
+          'Correlation r': line.r.toFixed(3),
+        } : { 'Fit': 'too few planets' }),
+        ...(kepler && !blind && { 'Dashed line': 'Kepler: slope 2/3 for a Sun-mass star', 'Median a³ / (P²·M★)': ratios[ratios.length >> 1].toFixed(3) }),
       });
+      book.refresh();
     }
 
     hover(cv, (x, y) => {
