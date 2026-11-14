@@ -1,15 +1,50 @@
 // Lab notebook: question → prediction locked before the result is shown → measurement → verdict → conclusion.
-// Records live in this browser's localStorage and can be downloaded as Markdown.
+// Also hosts the lab's missions. Records live in this browser's localStorage and download as Markdown.
 import { esc, pm } from './kit.js';
 import { compare } from './physics/fit.js';
+import { MISSIONS, done, complete } from './missions.js';
 
-const KEY = 'physlab.notebook';
-const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? []; } catch { return []; } };
-const save = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); return true; } catch { return false; } };
+const KEY = 'physlab.notebook', REOPEN = 'physlab.reopen';
+export const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? []; } catch { return []; } };
+export const save = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); return true; } catch { return false; } };
 
 const amount = ([value, err, unit]) => `${pm(value, err)} ${unit}`.trim();
 const methodText = (m) => Object.entries(m).map(([k, val]) => `${k}: ${Array.isArray(val) ? val.map((x) => +(+x).toPrecision(5)).join(' – ') : val}`).join(' · ');
 const judge = (r) => { const c = compare(r.predicted, r.tolerance, r.measured[0], r.measured[1]); return `${c.text}${isFinite(c.z) ? ` (${c.z.toFixed(1)} σ apart)` : ''}`; };
+
+// A source becomes a link only when it is plainly an arXiv id or a DOI; anything else stays text.
+function sourceHtml(src) {
+  const arxiv = /^(?:arxiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)$/i.exec(src.trim()), doi = /^(?:doi:|https:\/\/doi\.org\/)?(10\.\d{4,9}\/[^\s"<>]+)$/i.exec(src.trim());
+  const href = arxiv ? `https://arxiv.org/abs/${arxiv[1]}` : doi ? `https://doi.org/${doi[1]}` : null;
+  return href ? `<a href="${esc(href)}" rel="noopener">${esc(src)}</a>` : esc(src);
+}
+
+export const recordHtml = (r, actions = '') => `
+  <article class="record">
+    <b>${esc(r.question)}</b> <small>${esc(r.lab)} · ${new Date(r.id).toLocaleString()}</small>
+    <p>Predicted ${esc(r.quantity)} = ${esc(r.predicted)} ± ${esc(r.tolerance)} ${esc(r.measured[2])} · measured ${esc(amount(r.measured))} · <b>${esc(judge(r))}</b></p>
+    ${r.source ? `<p><i>Prediction taken from:</i> ${sourceHtml(r.source)}</p>` : ''}${r.reason ? `<p><i>Why:</i> ${esc(r.reason)}</p>` : ''}${r.conclusion ? `<p><i>Conclusion:</i> ${esc(r.conclusion)}</p>` : ''}
+    <p class="note">${esc(methodText(r.method))}${r.changed ? ' · settings were changed after the prediction was locked' : ''}</p>
+    ${actions}
+  </article>`;
+
+export const toMarkdown = (records, title) => `# ${title}\n\n` + records.map((r) => [
+  `## ${r.question}`, `- Lab: ${r.lab}`, `- Date: ${new Date(r.id).toLocaleString()}`,
+  `- Prediction: ${r.quantity} = ${r.predicted} ± ${r.tolerance} ${r.measured[2]}`, `- Prediction taken from: ${r.source || 'own reasoning'}`, `- Why: ${r.reason || '—'}`,
+  `- Measured: ${amount(r.measured)}`, `- Verdict: ${judge(r)}`,
+  `- All results: ${Object.entries(r.results).map(([q, val]) => `${q} ${amount(val)}`).join('; ')}`,
+  `- Method: ${methodText(r.method)}${r.changed ? ' (settings changed after the prediction was locked)' : ''}`,
+  `- Conclusion: ${r.conclusion || '—'}`,
+].join('\n')).join('\n\n') + '\n';
+
+export function download(name, text) {
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type: 'text/markdown' })), download: name });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Ask a lab to restore a record's settings the next time it opens (used by the notebook page).
+export const reopenLater = (r) => sessionStorage.setItem(REOPEN, JSON.stringify({ lab: r.lab, method: r.method }));
 
 // o: { lab, example: sample question, pending: text shown while there is nothing to measure,
 //      quantities: { name: unit }, results(): { name: [value, err, unit] } | null,
@@ -18,7 +53,8 @@ export function notebook(root, o) {
   const box = document.createElement('section');
   box.className = 'notebook';
   root.append(box);
-  let stage = 'idle', draft = null;
+  const missions = MISSIONS[o.lab] ?? [];
+  let stage = 'idle', draft = null, feedback = {};
 
   function live() {
     const el = box.querySelector('[data-live]');
@@ -28,7 +64,13 @@ export function notebook(root, o) {
   }
 
   function render() {
-    const mine = load().filter((r) => r.lab === o.lab);
+    const mine = load().filter((r) => r.lab === o.lab), passed = done();
+    const missionHtml = missions.length ? `<h2>Missions</h2><div class="missions">${missions.map((m) => `
+      <article class="record">
+        <small class="level">${m.level}</small> <b>${m.title}</b>${passed[m.id] ? ' <span class="done">✓ completed</span>' : ''}
+        <p>${m.brief}</p>
+        ${passed[m.id] ? '' : `<button type="button" data-mission="${m.id}">Check my result</button> <span class="note">${feedback[m.id] ?? ''}</span>`}
+      </article>`).join('')}</div>` : '';
     const sheet = stage === 'idle' ? `
       <p class="note">Work the way a physicist does: ask a question, write down what you expect <em>before</em> you look, measure, then compare. Measured values stay hidden from the moment you start until your prediction is locked.</p>
       <button type="button" data-act="new">New experiment</button>`
@@ -39,6 +81,7 @@ export function notebook(root, o) {
         <label>My prediction<input name="predicted" type="number" step="any" required></label>
         <label>± how sure I am, same units<input name="tolerance" type="number" step="any" min="0" required></label>
         <label class="wide">Why I expect this<textarea name="reason" rows="2"></textarea></label>
+        <label class="wide">Testing a published value? Give its arXiv id or DOI (optional)<input name="source" placeholder="e.g. 1207.7235 or 10.1016/j.physletb.2012.08.021"></label>
         <div class="wide"><button>Lock prediction and reveal results</button> <button type="button" data-act="cancel">Cancel</button></div>
       </form>
       <p class="note">Choose your settings above first. The measured values are hidden until you lock.</p>`
@@ -49,15 +92,8 @@ export function notebook(root, o) {
         <label class="wide">Conclusion<textarea name="conclusion" rows="2" placeholder="What did you learn? What would you test next?"></textarea></label>
         <div class="wide"><button type="button" data-act="record">Record this result</button> <button type="button" data-act="cancel">Discard</button></div>
       </div>`;
-    const records = mine.map((r) => `
-      <article class="record">
-        <b>${esc(r.question)}</b> <small>${new Date(r.id).toLocaleString()}</small>
-        <p>Predicted ${esc(r.quantity)} = ${esc(r.predicted)} ± ${esc(r.tolerance)} ${esc(r.measured[2])} · measured ${esc(amount(r.measured))} · <b>${esc(judge(r))}</b></p>
-        ${r.reason ? `<p><i>Why:</i> ${esc(r.reason)}</p>` : ''}${r.conclusion ? `<p><i>Conclusion:</i> ${esc(r.conclusion)}</p>` : ''}
-        <p class="note">${esc(methodText(r.method))}${r.changed ? ' · settings were changed after the prediction was locked' : ''}</p>
-        <button type="button" data-reopen="${r.id}">Reopen these settings</button> <button type="button" data-delete="${r.id}">Delete</button>
-      </article>`).join('');
-    box.innerHTML = `<h2>Lab notebook</h2>${sheet}${mine.length ? `<h3>Recorded experiments (${mine.length})</h3>${records}<button type="button" data-act="export">Download notebook as Markdown</button>` : ''}`;
+    const records = mine.map((r) => recordHtml(r, `<button type="button" data-reopen="${r.id}">Reopen these settings</button> <button type="button" data-delete="${r.id}">Delete</button>`)).join('');
+    box.innerHTML = `${missionHtml}<h2>Lab notebook</h2>${sheet}${mine.length ? `<h3>Recorded experiments (${mine.length})</h3>${records}<button type="button" data-act="export">Download notebook as Markdown</button>` : ''}`;
     live();
   }
 
@@ -66,15 +102,23 @@ export function notebook(root, o) {
   box.onsubmit = (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
-    draft = { id: Date.now(), lab: o.lab, question: f.question, quantity: f.quantity, predicted: +f.predicted, tolerance: +f.tolerance, reason: f.reason, method: o.method() };
+    draft = { id: Date.now(), lab: o.lab, question: f.question, quantity: f.quantity, predicted: +f.predicted, tolerance: +f.tolerance, reason: f.reason, source: f.source.trim(), method: o.method() };
     go('measure');
   };
 
   box.onclick = (e) => {
-    const b = e.target.closest('button[data-act], button[data-reopen], button[data-delete]');
+    const b = e.target.closest('button[data-act], button[data-reopen], button[data-delete], button[data-mission]');
     if (!b) return;
     const all = load();
-    if (b.dataset.act === 'new') go('predict');
+    if (b.dataset.mission) {
+      const m = missions.find((x) => x.id === b.dataset.mission);
+      let ok = false;
+      try { ok = !!m.check(o.results(), o.method()); } catch { /* an incomplete measurement simply does not pass */ }
+      if (ok) complete(m.id); else feedback[m.id] = 'Not there yet. Re-read the brief and check the measured values above.';
+      const conclusion = box.querySelector('[name=conclusion]')?.value; // keep text typed so far
+      render();
+      if (conclusion) box.querySelector('[name=conclusion]').value = conclusion;
+    } else if (b.dataset.act === 'new') go('predict');
     else if (b.dataset.act === 'cancel') go('idle');
     else if (b.dataset.act === 'record') {
       const results = o.results(), method = o.method();
@@ -88,21 +132,14 @@ export function notebook(root, o) {
     } else if (b.dataset.delete && confirm('Delete this record? This cannot be undone.')) {
       save(all.filter((r) => r.id !== +b.dataset.delete));
       render();
-    } else if (b.dataset.act === 'export') {
-      const md = `# PhysLab notebook — ${o.lab}\n\n` + all.filter((r) => r.lab === o.lab).map((r) => [
-        `## ${r.question}`, `- Date: ${new Date(r.id).toLocaleString()}`,
-        `- Prediction: ${r.quantity} = ${r.predicted} ± ${r.tolerance} ${r.measured[2]}`, `- Why: ${r.reason || '—'}`,
-        `- Measured: ${amount(r.measured)}`, `- Verdict: ${judge(r)}`,
-        `- All results: ${Object.entries(r.results).map(([q, val]) => `${q} ${amount(val)}`).join('; ')}`,
-        `- Method: ${methodText(r.method)}${r.changed ? ' (settings changed after the prediction was locked)' : ''}`,
-        `- Conclusion: ${r.conclusion || '—'}`,
-      ].join('\n')).join('\n\n') + '\n';
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), download: `physlab-notebook-${o.lab}.md` });
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }
+    } else if (b.dataset.act === 'export') download(`physlab-notebook-${o.lab}.md`, toMarkdown(all.filter((r) => r.lab === o.lab), `PhysLab notebook — ${o.lab}`));
   };
 
   render();
+  // a record opened from the notebook page: apply its settings once the lab has finished mounting
+  try {
+    const wanted = JSON.parse(sessionStorage.getItem(REOPEN));
+    if (wanted?.lab === o.lab) { sessionStorage.removeItem(REOPEN); setTimeout(() => o.restore(wanted.method), 0); }
+  } catch { /* nothing to reopen */ }
   return { refresh: live };
 }

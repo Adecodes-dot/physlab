@@ -1,0 +1,177 @@
+{
+ "generated": "2026-11-14",
+ "passed": 17,
+ "total": 17,
+ "rows": [
+  {
+   "lab": "collider",
+   "name": "Largest mass difference from CMS, all events",
+   "measured": 0.000601,
+   "reference": 0,
+   "tolerance": 0.005,
+   "unit": "GeV",
+   "basis": "Our invariant mass against the mass column CMS published, 100,000 events",
+   "pass": true
+  },
+  {
+   "lab": "collider",
+   "name": "J/ψ mass",
+   "measured": 3.0932861710969997,
+   "reference": 3.0969,
+   "tolerance": 0.015484500000000002,
+   "unit": "GeV",
+   "basis": "Fitted peak against the Particle Data Group value, within 0.5 %",
+   "pass": true
+  },
+  {
+   "lab": "collider",
+   "name": "ψ(2S) mass",
+   "measured": 3.684768395735193,
+   "reference": 3.6861,
+   "tolerance": 0.018430500000000002,
+   "unit": "GeV",
+   "basis": "Fitted peak against the Particle Data Group value, within 0.5 %",
+   "pass": true
+  },
+  {
+   "lab": "collider",
+   "name": "Υ(1S) mass",
+   "measured": 9.44803612582421,
+   "reference": 9.4603,
+   "tolerance": 0.0473015,
+   "unit": "GeV",
+   "basis": "Fitted peak against the Particle Data Group value, within 0.5 %",
+   "pass": true
+  },
+  {
+   "lab": "collider",
+   "name": "Z mass",
+   "measured": 90.85039444894987,
+   "reference": 91.1876,
+   "tolerance": 0.455938,
+   "unit": "GeV",
+   "basis": "Fitted peak against the Particle Data Group value, within 0.5 %",
+   "pass": true
+  },
+  {
+   "lab": "statistics",
+   "name": "Spread of fit pulls (1 = error bars are the right size)",
+   "measured": 1.0236236598253898,
+   "reference": 1,
+   "tolerance": 0.15,
+   "unit": "",
+   "basis": "400 simulated experiments with a known answer",
+   "pass": true
+  },
+  {
+   "lab": "statistics",
+   "name": "Mean of fit pulls (0 = no bias)",
+   "measured": -0.02565171383291192,
+   "reference": 0,
+   "tolerance": 0.15,
+   "unit": "",
+   "basis": "400 simulated experiments with a known answer",
+   "pass": true
+  },
+  {
+   "lab": "exoplanets",
+   "name": "Kepler exponent from the planet census",
+   "measured": 0.6753001856025529,
+   "reference": 0.6666666666666666,
+   "tolerance": 0.015,
+   "unit": "",
+   "basis": "Slope of log a against log P for 5,623 planets; Kepler’s third law gives 2/3",
+   "pass": true
+  },
+  {
+   "lab": "exoplanets",
+   "name": "Median a³ / (P²·M★)",
+   "measured": 1.0003465860865015,
+   "reference": 1,
+   "tolerance": 0.01,
+   "unit": "",
+   "basis": "Kepler’s third law in AU, years and solar masses",
+   "pass": true
+  },
+  {
+   "lab": "orbits",
+   "name": "Period of a 1 AU circular orbit",
+   "measured": 1.000011659211021,
+   "reference": 0.9999985000033751,
+   "tolerance": 0.00002,
+   "unit": "yr",
+   "basis": "Leapfrog at a 0.001 yr step against the exact two-body solution; a second-order method should err by about (ω·dt)²/3 = 1.3e-5",
+   "pass": true
+  },
+  {
+   "lab": "orbits",
+   "name": "Convergence order of the integrator",
+   "measured": 1.9999064050675859,
+   "reference": 2,
+   "tolerance": 0.05,
+   "unit": "",
+   "basis": "Halving the time step should cut the error by four",
+   "pass": true
+  },
+  {
+   "lab": "orbits",
+   "name": "Relative energy change over 10 orbits",
+   "measured": 3.8962505117004346e-10,
+   "reference": 0,
+   "tolerance": 1e-8,
+   "unit": "",
+   "basis": "Energy is conserved exactly by the true motion",
+   "pass": true
+  },
+  {
+   "lab": "quantum",
+   "name": "Total probability after scattering",
+   "measured": 1.0000000000001696,
+   "reference": 1,
+   "tolerance": 1e-9,
+   "unit": "",
+   "basis": "The Schrödinger equation conserves probability exactly",
+   "pass": true
+  },
+  {
+   "lab": "quantum",
+   "name": "Tunnelling probability",
+   "measured": 0.3148887302468977,
+   "reference": 0.30994212923155545,
+   "tolerance": 0.02,
+   "unit": "",
+   "basis": "Wave packet against the textbook formula for one exact energy; the packet’s energy spread accounts for the gap",
+   "pass": true
+  },
+  {
+   "lab": "quantum",
+   "name": "Speed of a free wave packet",
+   "measured": 1.1966484414663916,
+   "reference": 1.2,
+   "tolerance": 0.012,
+   "unit": "",
+   "basis": "Group velocity equals the mean momentum k₀ (ħ = m = 1)",
+   "pass": true
+  },
+  {
+   "lab": "neuron",
+   "name": "Firing rate at 10 µA/cm²",
+   "measured": 68.04572672836146,
+   "reference": 68.04572672836147,
+   "tolerance": 0.2,
+   "unit": "Hz",
+   "basis": "Our time step against one four times finer: the answer should not depend on the step",
+   "pass": true
+  },
+  {
+   "lab": "neuron",
+   "name": "Resting voltage with no input",
+   "measured": -64.99637933095023,
+   "reference": -65,
+   "tolerance": 0.1,
+   "unit": "mV",
+   "basis": "The Hodgkin–Huxley resting potential",
+   "pass": true
+  }
+ ]
+}

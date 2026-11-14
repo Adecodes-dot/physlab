@@ -25,7 +25,8 @@ export default {
     run(running);
     button(bar, 'Restart', reset);
     const cvV = canvas(root, 150, 'Potential energy against position, with the packet energy marked');
-    const cvP = canvas(root, 320, 'Probability density of the particle against position, animated');
+    root.insertAdjacentHTML('beforeend', '<div class="legend"><span>Height: how likely the particle is to be found there. Colour: the phase of ψ, −π <i class="phase"></i> +π. Bands packed closer together mean higher momentum; where incoming and reflected waves overlap, the height ripples.</span></div>');
+    const cvP = canvas(root, 320, 'Probability density of the particle against position, coloured by the phase of the wave function, animated');
     const set = tiles(root);
     note(root, 'A simulation has no statistical noise, so the measured shares carry no ± of their own; your prediction’s tolerance alone decides the verdict. Theory T is for a single exact energy, while a packet is a spread of energies, so the two differ a little.');
 
@@ -84,9 +85,13 @@ export default {
 
       const p = frame(cvP, { x: [0, LENGTH], y: [0, 0.26], xlabel: 'Position', ylabel: 'Probability density |ψ|²' });
       p.ctx.save(); p.clip();
-      line(p, xs, density, '--s1');
-      p.ctx.lineTo(p.sx(LENGTH), p.sy(0)); p.ctx.lineTo(p.sx(0), p.sy(0));
-      p.ctx.globalAlpha = 0.18; p.ctx.fillStyle = ink('--s1'); p.ctx.fill();
+      // fill coloured by the phase of ψ: hue runs once round the colour wheel as the phase goes from −π to +π
+      for (let px = Math.ceil(p.left); px < p.right; px += 2) {
+        const j = Math.round(p.ix(px) / s.dx);
+        p.ctx.fillStyle = `hsl(${(Math.atan2(s.im[j], s.re[j]) / Math.PI + 1) * 180} 75% 55%)`;
+        p.ctx.fillRect(px, p.sy(density[j]), 2, p.bottom - p.sy(density[j]));
+      }
+      line(p, xs, density, '--text');
       p.ctx.restore();
 
       set(hold ? { Status: 'Waiting at the start. Results stay hidden until you lock a prediction.' } : {

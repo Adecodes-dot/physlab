@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { invariantMass, histogram } from '../src/physics/kinematics.js';
+import { invariantMass, pairMass, histogram } from '../src/physics/kinematics.js';
 import { G, step, energy } from '../src/physics/nbody.js';
 import * as q from '../src/physics/quantum.js';
 import { simulate } from '../src/physics/neuron.js';
@@ -9,6 +9,10 @@ const near = (a, b, tol) => assert.ok(Math.abs(a - b) <= tol, `${a} vs ${b} (tol
 
 test('invariant mass reproduces the CMS value for the first event', () => {
   near(invariantMass(9.5175, 0.1945, 3.1031, 7.4178, 0.7756, -0.1560), 17.4922, 0.005);
+});
+
+test('mass from Cartesian momenta agrees for the same event', () => {
+  near(pairMass(-9.5104, 0.3662, 1.8633, 7.3277, -1.1524, 6.3473), 17.4922, 0.005);
 });
 
 test('histogram bins linear and log ranges', () => {
@@ -70,7 +74,7 @@ test('peak fit recovers a known Gaussian on a sloped background within its own e
 
 test('fitting the real CMS data finds the J/psi near 3.097 GeV', () => {
   const rows = readFileSync(new URL('../data/dimuon.csv', import.meta.url), 'utf8').split('\n').slice(1).map((r) => r.split(',').map(Number));
-  const m = rows.filter((r) => r.length === 8 && r[3] * r[7] === -1).map((r) => invariantMass(r[0], r[1], r[2], r[4], r[5], r[6]));
+  const m = rows.filter((r) => r.length === 8 && r[3] * r[7] === -1).map((r) => pairMass(r[0], r[1], r[2], r[4], r[5], r[6]));
   const lo = 2.95, hi = 3.25, bins = 60, h = histogram(m, lo, hi, bins);
   const f = fitPeak(Array.from(h, (_, i) => lo + (i + 0.5) * (hi - lo) / bins), h, 'gauss');
   assert.ok(f.ok);
@@ -114,4 +118,31 @@ test('period tracker measures a one-year orbit for Earth', () => {
   assert.equal(n, 3);
   near(mean, 1, 1e-4);
   assert.ok(se < 1e-5);
+});
+
+import { parseTable } from '../src/table.js';
+import { MISSIONS } from '../src/missions.js';
+
+test('CSV parser keeps numeric columns, finds the delimiter and tolerates gaps', () => {
+  const t = parseTable('name;x;y\na;1;2.5\nb;2;\nc;3;7\nd;4;9\ne;5;11\nf;6;13\ng;7;15\nh;8;17\ni;9;19\nj;10;21\n');
+  assert.deepEqual(t.cols, ['x', 'y']);
+  assert.equal(t.data[0].length, 10);
+  assert.ok(Number.isNaN(t.data[1][1]));
+  assert.deepEqual(parseTable('1,2\n3,4\n5,6\n7,8\n').cols, ['column 1', 'column 2']);
+  assert.throws(() => parseTable('a,b\nx,y\nz,w\nq,r\n'), /numeric/);
+});
+
+test('missions have unique ids and never pass or crash on an empty measurement', () => {
+  const all = Object.values(MISSIONS).flat();
+  assert.equal(new Set(all.map((m) => m.id)).size, all.length);
+  for (const m of all) assert.equal(!!m.check(null, {}), false, m.id);
+});
+
+test('each lab has a mission that real results can pass', () => {
+  const pass = (lab, i, r, m = {}) => assert.ok(MISSIONS[lab][i].check(r, m), `${lab} ${i}`);
+  pass('collider', 1, { 'Peak position': [90.85, 0.04] });
+  pass('exoplanets', 1, { 'Fitted slope': [0.6753, 0.0009] }, { x: 'Orbital period (days)', y: 'Semi-major axis (AU)' });
+  pass('orbits', 1, { 'Period of Mars': [1.88134, 0] });
+  pass('quantum', 1, { 'Transmitted share': [15.6, 0] }, { shape: 'Barrier', E: 0.5, V0: 1 });
+  pass('neuron', 1, { 'Spike count': [5, 0] }, { I: 6.5, na: 0, k: 0 });
 });

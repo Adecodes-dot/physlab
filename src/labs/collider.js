@@ -1,5 +1,5 @@
 import { controls, tiles, canvas, frame, ctx2d, hover, ink, button, note, legend, line, pm } from '../kit.js';
-import { invariantMass, histogram } from '../physics/kinematics.js';
+import { pairMass, histogram } from '../physics/kinematics.js';
 import { fitPeak } from '../physics/fit.js';
 import { notebook } from '../notebook.js';
 
@@ -7,7 +7,7 @@ import { notebook } from '../notebook.js';
 const VIEWS = { 'Full spectrum (log–log)': [2, 110, true], 'J/ψ and ψ(2S)': [2.6, 4.1], 'Υ family': [8.5, 11.5], 'Z boson': [70, 110] };
 // Particle Data Group masses, GeV. Third field: hide in the crowded full view.
 const PDG = [['J/ψ', 3.0969], ['ψ(2S)', 3.6861], ['Υ(1S)', 9.4603], ['Υ(2S)', 10.0233, 1], ['Υ(3S)', 10.3552, 1], ['Z', 91.1876]];
-const B_FIELD = 3.8, R_TRACKER = 1.2, R_SOLENOID = 3; // tesla, metres
+const B_FIELD = 3.8, R_TRACKER = 1.2, R_SOLENOID = 3, L_TRACKER = 2.8, L_SOLENOID = 6.25; // tesla; radii and half-lengths in metres
 
 export default {
   id: 'collider',
@@ -18,9 +18,12 @@ export default {
   async mount(root) {
     const res = await fetch('data/dimuon.csv');
     if (!res.ok) throw new Error('Could not load data/dimuon.csv — run `npm run data` to download it.');
-    // columns: pt1, eta1, phi1, Q1, pt2, eta2, phi2, Q2
-    const ev = (await res.text()).split('\n').slice(1).map((r) => r.split(',').map(Number)).filter((r) => r.length === 8);
-    const mass = ev.map((r) => invariantMass(r[0], r[1], r[2], r[4], r[5], r[6]));
+    // file columns: px1, py1, pz1, Q1, px2, py2, pz2, Q2 (GeV)
+    const raw = (await res.text()).split('\n').slice(1).map((r) => r.split(',').map(Number)).filter((r) => r.length === 8);
+    const mass = raw.map((r) => pairMass(r[0], r[1], r[2], r[4], r[5], r[6]));
+    // per muon: transverse momentum pT, pseudorapidity η, azimuth φ, charge
+    const polar = (px, py, pz, q) => { const pt = Math.hypot(px, py); return [pt, Math.asinh(pz / pt), Math.atan2(py, px), q]; };
+    const ev = raw.map((r) => [...polar(r[0], r[1], r[2], r[3]), ...polar(r[4], r[5], r[6], r[7])]);
     const views = { ...VIEWS, 'Custom range': [2.95, 3.25] };
 
     const v = controls(root, {
@@ -55,7 +58,20 @@ export default {
 
     root.insertAdjacentHTML('beforeend', '<h2 class="section">One collision up close</h2>');
     const row = Object.assign(document.createElement('div'), { className: 'split' });
-    const evCv = canvas(row, 340, 'One collision seen along the beam line: two muon tracks curving in the magnetic field');
+    const evCv = canvas(row, 380, 'One collision in a 3D wireframe of the detector: two muon tracks spiralling in the magnetic field. Drag to rotate.');
+    evCv.style.touchAction = 'pan-y';
+    evCv.style.cursor = 'grab';
+    const view = { yaw: 0.75, pitch: 0.3 }; // radians
+    let turning = null;
+    evCv.onpointerdown = (e) => { turning = [e.offsetX, e.offsetY]; evCv.setPointerCapture(e.pointerId); };
+    evCv.onpointermove = (e) => {
+      if (!turning) return;
+      view.yaw += (e.offsetX - turning[0]) * 0.01;
+      view.pitch = Math.max(-1.5, Math.min(1.5, view.pitch + (e.offsetY - turning[1]) * 0.01));
+      turning = [e.offsetX, e.offsetY];
+      drawEvent();
+    };
+    evCv.onpointerup = evCv.onpointercancel = () => { turning = null; };
     const info = document.createElement('div');
     row.append(info);
     root.append(row);
@@ -129,33 +145,44 @@ export default {
     }
 
     function drawEvent() {
-      const { ctx, w, h } = ctx2d(evCv), cx = w / 2, cy = h / 2, s = Math.min(w, h) / 2 / (R_SOLENOID * 1.12); // px per metre
+      // 3D wireframe, orthographic. Axes: z along the beam, x–y across it. yaw = pitch = 0 looks straight down the beam.
+      const { ctx, w, h } = ctx2d(evCv), cx = w / 2, cy = h / 2, s = Math.min(w, h) / 2 / (L_SOLENOID * 1.08); // px per metre
+      const cyaw = Math.cos(view.yaw), syaw = Math.sin(view.yaw), cpit = Math.cos(view.pitch), spit = Math.sin(view.pitch);
+      const P = (x, y, z) => { const x1 = x * cyaw + z * syaw, z1 = -x * syaw + z * cyaw; return [cx + s * x1, cy - s * (y * cpit - z1 * spit)]; };
+      const path = (pts) => { ctx.beginPath(); for (const q of pts) ctx.lineTo(...P(...q)); ctx.stroke(); };
+      const TAU = 2 * Math.PI;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      for (const [r, name] of [[R_TRACKER, 'tracker'], [R_SOLENOID, `solenoid, ${B_FIELD} T`]]) {
-        ctx.strokeStyle = ink('--axis'); ctx.beginPath(); ctx.arc(cx, cy, r * s, 0, 7); ctx.stroke();
-        ctx.fillStyle = ink('--muted'); ctx.fillText(name, cx, cy - r * s - 2);
+      for (const [r, L, name] of [[R_TRACKER, L_TRACKER, 'tracker'], [R_SOLENOID, L_SOLENOID, `solenoid, ${B_FIELD} T`]]) {
+        ctx.strokeStyle = ink('--axis');
+        for (const z of [-L, L]) path(Array.from({ length: 49 }, (_, i) => [r * Math.cos(i * TAU / 48), r * Math.sin(i * TAU / 48), z]));
+        for (let i = 0; i < 8; i++) { const a = i * TAU / 8; path([[r * Math.cos(a), r * Math.sin(a), -L], [r * Math.cos(a), r * Math.sin(a), L]]); }
+        ctx.fillStyle = ink('--muted'); const [lx, ly] = P(0, r, -L); ctx.fillText(name, lx, ly - 2);
       }
+      ctx.strokeStyle = ink('--muted'); ctx.setLineDash([4, 4]); path([[0, 0, -L_SOLENOID * 1.05], [0, 0, L_SOLENOID * 1.05]]); ctx.setLineDash([]);
       if (shown < 0) { info.innerHTML = ''; return; }
       const r = ev[shown], mu = [[r[0], r[1], r[2], r[3]], [r[4], r[5], r[6], r[7]]];
-      for (const [pt, , phi0, q] of mu) {
-        // radius of curvature R[m] = pT[GeV] / (0.3 · B[T]); positive charges bend clockwise for B along +z
-        const R = pt / (0.3 * B_FIELD), ds = 0.01;
-        let x = 0, y = 0, phi = phi0;
+      for (const [pt, eta, phi0, q] of mu) {
+        // helix: in x–y a circle of radius R[m] = pT[GeV] / (0.3 · B[T]) (positive charges bend clockwise for B along +z),
+        // while z grows steadily with the path length, by sinh(η) per metre travelled across the beam
+        const R = pt / (0.3 * B_FIELD), ds = 0.01, dz = Math.sinh(eta) * ds;
+        let x = 0, y = 0, z = 0, phi = phi0;
         ctx.beginPath(); ctx.moveTo(cx, cy);
-        for (let i = 0; i < 3000 && Math.hypot(x, y) < R_SOLENOID; i++) {
-          phi -= q * ds / R; x += Math.cos(phi) * ds; y += Math.sin(phi) * ds;
-          ctx.lineTo(cx + x * s, cy - y * s);
+        for (let i = 0; i < 3000 && Math.hypot(x, y) < R_SOLENOID && Math.abs(z) < L_SOLENOID; i++) {
+          phi -= q * ds / R; x += Math.cos(phi) * ds; y += Math.sin(phi) * ds; z += dz;
+          ctx.lineTo(...P(x, y, z));
         }
         ctx.strokeStyle = ink(q > 0 ? '--s2' : '--s1'); ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1;
         ctx.fillStyle = ink('--text'); ctx.textBaseline = 'middle';
-        ctx.fillText(q > 0 ? 'μ⁺' : 'μ⁻', cx + x * s * 0.88 + 12 * Math.sin(phi), cy - y * s * 0.88 + 12 * Math.cos(phi));
+        const [ex, ey] = P(x, y, z); ctx.fillText(q > 0 ? 'μ⁺' : 'μ⁻', ex + 10, ey - 8);
       }
       info.innerHTML = `<table>
         <tr><th>Event ${shown + 1} of ${ev.length.toLocaleString()}</th><th>pT (GeV)</th><th>η</th><th>φ (rad)</th></tr>
         ${mu.map(([pt, eta, phi, q]) => `<tr><td>${q > 0 ? 'μ⁺' : 'μ⁻'}</td><td>${pt.toFixed(2)}</td><td>${eta.toFixed(2)}</td><td>${phi.toFixed(2)}</td></tr>`).join('')}
         <tr><td>Pair mass</td><td colspan="3">${mass[shown].toFixed(3)} GeV</td></tr></table>
-        <p class="note">View along the beam. The magnet bends each muon into a circle of radius pT / (0.3·B) metres, so a faster muon leaves a straighter track — that curvature is how the detector measures momentum. Tracks are drawn to the solenoid only.</p>`;
+        <p class="note">Drag the picture to turn the detector. Seen along the beam, the magnet bends each muon into a circle of radius pT / (0.3·B) metres, so a faster muon leaves a straighter track: that curvature is how the detector measures momentum. Seen from the side, η sets how steeply a track leans along the beam. Orange is positive charge, blue negative. Tracks stop at the solenoid.</p>`;
       button(info, 'Another event from this window', next);
+      button(info, 'Look along the beam', () => { view.yaw = 0; view.pitch = 0; drawEvent(); });
+      button(info, 'Side view', () => { view.yaw = Math.PI / 2; view.pitch = 0; drawEvent(); });
     }
 
     hover(cv, (x) => {
